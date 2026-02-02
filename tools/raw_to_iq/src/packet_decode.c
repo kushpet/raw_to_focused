@@ -6,15 +6,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "reconstruct.h"
+#include <assert.h>
 
 //#define msg printf
 #define msg(...)
 
 //#define dump_payload
 
-int next_bit(unsigned char* p, int* cposition, int* bposition)
+unsigned char next_bit(unsigned char* p, int* cposition, int* bposition)
 {
-	int bit = ((p[*cposition] >> (*bposition)) & 1);
+	unsigned char bit = ((p[*cposition] >> (*bposition)) & 1);
 	(*bposition)--;
 	if ((*bposition) < 0) { (*cposition)++; (*bposition) = 7; }
 	return(bit);
@@ -96,8 +97,7 @@ static struct sh_code BRC4(unsigned char* p, int* cposition, int* bposition) // 
 			break;
 		}
 	} while (hcode <= 15);
-	sol.mcode = 999;
-	exit(-1);    // should never get here
+	assert(0);	// should never get here
 	return(sol);
 }
 
@@ -112,7 +112,10 @@ static struct sh_code BRC(int BRCn, unsigned char* p, int* cposition, int* bposi
 	case 1: BRCn = 4; break; // number of steps to reach the leaves BRC1
 	case 2: BRCn = 6; break; // number of steps to reach the leaves BRC2
 	case 3: BRCn = 9; break; // number of steps to reach the leaves BRC3
-	case 4: return(BRC4(p, cposition, bposition)); printf("\nCheck if BRC4 output is correct\n"); exit(0); break;
+	case 4: 
+		printf("\nCheck if BRC4 output is correct\n");
+		return(BRC4(p, cposition, bposition));
+		break;
 	default: printf("ERROR"); exit(-1);
 	}
 	sign = next_bit(p, cposition, bposition);
@@ -147,14 +150,13 @@ static struct sh_code BRC(int BRCn, unsigned char* p, int* cposition, int* bposi
 			}       // end of tree reached
 		}
 	} while (hcode < BRCn);
-	exit(-1);                                     // ERROR in decoding Huffman
-	sol.mcode = 99;
-	return(sol);                                  // should never be reached
+	assert(0);		// ERROR in decoding Huffman. Should never be reached
+	return(sol);	// To avoid warning
 }
 
 unsigned char get_THIDX(unsigned char* p, int* cposition, int* bposition)
 {
-	int res = 0;
+	unsigned char res = 0;
 	int k;
 	for (k = 0; k < 8; k++)
 	{

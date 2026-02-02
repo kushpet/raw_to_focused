@@ -24,15 +24,14 @@ cat result.dat  | sed 's/[0-9]//g' | sed 's/-//g' | sed 's/\.//g' | sed 's/(//g'
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 #include <math.h>
 #include <stdint.h>
+#include <assert.h>
 
 #ifdef _WIN32 
 #include <winsock2.h>
 #else
 #include <arpa/inet.h> // ntohl for proper endianness
-#include <unistd.h>
 #endif
 
 #include "packet_decode.h"
@@ -40,11 +39,13 @@ cat result.dat  | sed 's/[0-9]//g' | sed 's/-//g' | sed 's/\.//g' | sed 's/(//g'
 //#define dump_payload
 
 #define fref 37.53472224
+#define filename_size 255
 
 int main(int argc, char** argv)
 {
-	int res; // ,f
-	FILE* f;
+	size_t res = 0;
+	errno_t err = 0;
+	FILE* f = 0;
 	// unsigned short *suser;
 	uint16_t c, tmp16, NQ = 0;
 	uint32_t tmp32, Time;
@@ -59,25 +60,24 @@ int main(int argc, char** argv)
 	float QE[52378];
 	float QO[52378];
 	char brc[52378];
-	// FILE *result;
-	// FILE *brcfile;
-	int brcfile;
-	int result;
+	FILE *result = 0;
+	FILE *brcfile = 0;
 	int numline = 0;
 	int file_swath_number = 0, file_nq = 0; // for new file creation
-	char filename[255];
+	char filename[filename_size];
 #ifdef dump_payload
 	int fo;
 #endif
 	if (argc < 2) return(1);
-	f = fopen(argv[1], "r"); // f=open(argv[1],O_RDONLY);
+	err = fopen_s(&f, argv[1], "r"); // f=open(argv[1],O_RDONLY);
+	assert(err == 0);
 	// result=fopen("result.dat","w");
 	// brcfile=fopen("brc.dat","w");
 	// fprintf(result,"# Created by myself\n# name: x\n# type: complex matrix\n# rows: \n# columns: ");
 	do
 	{
 		// Begin SAR Space Protocol Data Unit p.14/85
-		fread(&c, 2, 1, f);    // 0x0c = Pack_Ver Pack_Typ Secondary PID PCAT 
+		res = fread(&c, 2, 1, f);    // 0x0c = Pack_Ver Pack_Typ Secondary PID PCAT 
 		c = ntohs(c);
 		// On the i386 the host byte order is Least Significant Byte first, whereas the network byte
 		// order, as used on the Internet, is Most Significant Byte first
@@ -86,14 +86,14 @@ int main(int argc, char** argv)
 		PCAT = (c) & 0xf;
 		printf("%04x: %d(1)\t%d(65)\t%d(12)\t", c, Secondary, PID, PCAT);
 
-		fread(&c, 2, 1, f);    // 0x0c = Pack_Ver Pack_Typ Secondary PID PCAT 
+		res = fread(&c, 2, 1, f);    // 0x0c = Pack_Ver Pack_Typ Secondary PID PCAT 
 		c = ntohs(c);
 		Sequence = (c >> 14);
 		Count = (c & 0x3f);
 
-		fread(&c, 2, 1, f);    // 0x0c = Pack_Ver Pack_Typ Secondary PID PCAT 
+		res = fread(&c, 2, 1, f);    // 0x0c = Pack_Ver Pack_Typ Secondary PID PCAT 
 		DataLen = ntohs(c) + 1;
-		printf("%04x: %x(3)\tCount=%02d\tLen=%d(61..65533)\n", c, Sequence, Count, DataLen);
+		printf("%04x: %x(3)\tCount=%02d\tLen=%d(62..65534)\n", c, Sequence, Count, DataLen);
 		if (((DataLen + 6) % 4) != 0) printf("\nERROR: Length not multiple of 4\n");
 		res = fread(tablo, 1, DataLen, f);
 		// End SAR Space Protocol Data Unit p.14/85 : we have the payload ... now analyze tablo
@@ -158,14 +158,19 @@ int main(int argc, char** argv)
 		{
 			if (file_swath_number != 0)
 			{
-				close(result); close(brcfile); printf("\nFILE written %d %d\n", 2 * NQ, numline); numline = 0;
+				fclose(result);
+				fclose(brcfile);
+				printf("\nFILE written %d %d\n", 2 * NQ, numline);
+				numline = 0;
 			}
 			file_swath_number = Swath;
 			file_nq = NQ;
-			sprintf(filename, "resultSW%02d_T%d_NQ%d.bin", Swath, Time, NQ);
-			result = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644); // TRUNC = remove old data
-			sprintf(filename, "brcSW%02d_T%d.bin", Swath, Time);
-			brcfile = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+			sprintf_s(filename, filename_size, "resultSW%02d_T%d_NQ%d.bin", Swath, Time, NQ);
+			err = fopen_s(&result, filename, "w");
+			assert(err == 0);
+			sprintf_s(filename, filename_size, "brcSW%02d_T%d.bin", Swath, Time);
+			err = fopen_s(&brcfile, filename, "w");
+			assert(err == 0);
 		}
 		printf(" NQ=%d\n", NQ);
 		// if (NQ==0) fprintf(result,"%d\n",2*NQ);
@@ -186,10 +191,10 @@ int main(int argc, char** argv)
 			cposition = bypass(user, NQ, IE, IO, QE, QO);
 			for (cal_p = 0; cal_p < NQ; cal_p++)
 			{
-				write(result, &IE[cal_p], sizeof(float));
-				write(result, &QE[cal_p], sizeof(float));
-				write(result, &IO[cal_p], sizeof(float));
-				write(result, &QO[cal_p], sizeof(float));
+				res = fwrite(&IE[cal_p], sizeof(float), 1, result);
+				res = fwrite(&QE[cal_p], sizeof(float), 1, result);
+				res = fwrite(&IO[cal_p], sizeof(float), 1, result);
+				res = fwrite(&QO[cal_p], sizeof(float), 1, result);
 			}
 			printf(", finished processing %d calibration\n", DataLen - 62);
 			if ((DataLen - 62 - cposition) > 2) { printf("Not enough data processed: DataLen %d v.s. cposition %d\n", DataLen - 62, cposition); exit(-1); }
@@ -200,13 +205,16 @@ int main(int argc, char** argv)
 			cposition = packet_decode(user, NQ, IE, IO, QE, QO, brc, &brcpos);
 			for (cal_p = 0; cal_p < NQ; cal_p++)
 			{
-				write(result, &IE[cal_p], sizeof(float));
-				write(result, &QE[cal_p], sizeof(float));
-				write(result, &IO[cal_p], sizeof(float));
-				write(result, &QO[cal_p], sizeof(float));
+				res = fwrite(&IE[cal_p], sizeof(float), 1, result);
+				res = fwrite(&QE[cal_p], sizeof(float), 1, result);
+				res = fwrite(&IO[cal_p], sizeof(float), 1, result);
+				res = fwrite(&QO[cal_p], sizeof(float), 1, result);
 			}
 			// fprintf(result,"(%f,%f) (%f,%f) ",IE[cal_p],QE[cal_p],IO[cal_p],QO[cal_p]); // p.75: E then O
-			for (cal_p = 0; cal_p < brcpos; cal_p++) write(brcfile, &brc[cal_p], 1);
+			for (cal_p = 0; cal_p < brcpos; cal_p++)
+			{
+				res = fwrite(&brc[cal_p], 1, 1, brcfile);
+			}
 			// fprintf(brcfile,"%d ",brc[cal_p]); 
 // fprintf(result,"\n");fflush(result); // manually fill # rows: entry <- grep -v ^# result.dat | wc -l
 // fprintf(brcfile,"\n");fflush(brcfile); 
@@ -216,8 +224,8 @@ int main(int argc, char** argv)
 		numline++;
 	} while ((res > 0)); // until EOF
 	fclose(f);
-	close(brcfile);
-	close(result);
+	fclose(brcfile);
+	fclose(result);
 	printf("That's all folks, the end: %dx%d samples written\n", 2 * NQ, numline);
 }
 
