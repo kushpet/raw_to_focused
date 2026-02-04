@@ -39,12 +39,10 @@ cat result.dat  | sed 's/[0-9]//g' | sed 's/-//g' | sed 's/\.//g' | sed 's/(//g'
 //#define dump_payload
 
 #define fref 37.53472224
-#define filename_size 255
 
 int main(int argc, char** argv)
 {
 	size_t res = 0;
-	errno_t err = 0;
 	FILE* f = 0;
 	// unsigned short *suser;
 	uint16_t c, tmp16, NQ = 0;
@@ -64,13 +62,13 @@ int main(int argc, char** argv)
 	FILE *brcfile = 0;
 	int numline = 0;
 	int file_swath_number = 0, file_nq = 0; // for new file creation
-	char filename[filename_size];
+	char filename[255];
 #ifdef dump_payload
 	int fo;
 #endif
 	if (argc < 2) return(1);
-	err = fopen_s(&f, argv[1], "r"); // f=open(argv[1],O_RDONLY);
-	assert(err == 0);
+	f = fopen(argv[1], "rb"); // f=open(argv[1],O_RDONLY);
+	assert(f != 0);
 	// result=fopen("result.dat","w");
 	// brcfile=fopen("brc.dat","w");
 	// fprintf(result,"# Created by myself\n# name: x\n# type: complex matrix\n# rows: \n# columns: ");
@@ -165,12 +163,12 @@ int main(int argc, char** argv)
 			}
 			file_swath_number = Swath;
 			file_nq = NQ;
-			sprintf_s(filename, filename_size, "resultSW%02d_T%d_NQ%d.bin", Swath, Time, NQ);
-			err = fopen_s(&result, filename, "w");
-			assert(err == 0);
-			sprintf_s(filename, filename_size, "brcSW%02d_T%d.bin", Swath, Time);
-			err = fopen_s(&brcfile, filename, "w");
-			assert(err == 0);
+			sprintf(filename, "resultSW%02d_T%d_NQ%d.bin", Swath, Time, NQ);
+			result = fopen(filename, "wb");
+			assert(result != 0);
+			sprintf(filename, "brcSW%02d_T%d.bin", Swath, Time);
+			brcfile = fopen(filename, "wb");
+			assert(brcfile != 0);
 		}
 		printf(" NQ=%d\n", NQ);
 		// if (NQ==0) fprintf(result,"%d\n",2*NQ);
