@@ -42,7 +42,8 @@ cat result.dat  | sed 's/[0-9]//g' | sed 's/-//g' | sed 's/\.//g' | sed 's/(//g'
 
 int main(int argc, char** argv)
 {
-	size_t res = 0;
+	size_t in_res = 0;
+	size_t out_res = 0;
 	FILE* f = 0;
 	// unsigned short *suser;
 	uint16_t c, tmp16, NQ = 0;
@@ -75,7 +76,7 @@ int main(int argc, char** argv)
 	do
 	{
 		// Begin SAR Space Protocol Data Unit p.14/85
-		res = fread(&c, 2, 1, f);    // 0x0c = Pack_Ver Pack_Typ Secondary PID PCAT 
+		in_res = fread(&c, 2, 1, f);    // 0x0c = Pack_Ver Pack_Typ Secondary PID PCAT 
 		c = ntohs(c);
 		// On the i386 the host byte order is Least Significant Byte first, whereas the network byte
 		// order, as used on the Internet, is Most Significant Byte first
@@ -84,16 +85,16 @@ int main(int argc, char** argv)
 		PCAT = (c) & 0xf;
 		printf("%04x: %d(1)\t%d(65)\t%d(12)\t", c, Secondary, PID, PCAT);
 
-		res = fread(&c, 2, 1, f);    // 0x0c = Pack_Ver Pack_Typ Secondary PID PCAT 
+		in_res = fread(&c, 2, 1, f);    // 0x0c = Pack_Ver Pack_Typ Secondary PID PCAT 
 		c = ntohs(c);
 		Sequence = (c >> 14);
 		Count = (c & 0x3f);
 
-		res = fread(&c, 2, 1, f);    // 0x0c = Pack_Ver Pack_Typ Secondary PID PCAT 
+		in_res = fread(&c, 2, 1, f);    // 0x0c = Pack_Ver Pack_Typ Secondary PID PCAT 
 		DataLen = ntohs(c) + 1;
 		printf("%04x: %x(3)\tCount=%02d\tLen=%d(62..65534)\n", c, Sequence, Count, DataLen);
 		if (((DataLen + 6) % 4) != 0) printf("\nERROR: Length not multiple of 4\n");
-		res = fread(tablo, 1, DataLen, f);
+		in_res = fread(tablo, 1, DataLen, f);
 		// End SAR Space Protocol Data Unit p.14/85 : we have the payload ... now analyze tablo
 
 		// The Secondary head will be the next 62 bytes
@@ -189,10 +190,11 @@ int main(int argc, char** argv)
 			cposition = bypass(user, NQ, IE, IO, QE, QO);
 			for (cal_p = 0; cal_p < NQ; cal_p++)
 			{
-				res = fwrite(&IE[cal_p], sizeof(float), 1, result);
-				res = fwrite(&QE[cal_p], sizeof(float), 1, result);
-				res = fwrite(&IO[cal_p], sizeof(float), 1, result);
-				res = fwrite(&QO[cal_p], sizeof(float), 1, result);
+				out_res = fwrite(&IE[cal_p], sizeof(float), 1, result);
+				out_res = fwrite(&QE[cal_p], sizeof(float), 1, result);
+				out_res = fwrite(&IO[cal_p], sizeof(float), 1, result);
+				out_res = fwrite(&QO[cal_p], sizeof(float), 1, result);
+				assert(out_res > 0);
 			}
 			printf(", finished processing %d calibration\n", DataLen - 62);
 			if ((DataLen - 62 - cposition) > 2) { printf("Not enough data processed: DataLen %d v.s. cposition %d\n", DataLen - 62, cposition); exit(-1); }
@@ -203,15 +205,17 @@ int main(int argc, char** argv)
 			cposition = packet_decode(user, NQ, IE, IO, QE, QO, brc, &brcpos);
 			for (cal_p = 0; cal_p < NQ; cal_p++)
 			{
-				res = fwrite(&IE[cal_p], sizeof(float), 1, result);
-				res = fwrite(&QE[cal_p], sizeof(float), 1, result);
-				res = fwrite(&IO[cal_p], sizeof(float), 1, result);
-				res = fwrite(&QO[cal_p], sizeof(float), 1, result);
+				out_res = fwrite(&IE[cal_p], sizeof(float), 1, result);
+				out_res = fwrite(&QE[cal_p], sizeof(float), 1, result);
+				out_res = fwrite(&IO[cal_p], sizeof(float), 1, result);
+				out_res = fwrite(&QO[cal_p], sizeof(float), 1, result);
+				assert(out_res > 0);
 			}
 			// fprintf(result,"(%f,%f) (%f,%f) ",IE[cal_p],QE[cal_p],IO[cal_p],QO[cal_p]); // p.75: E then O
 			for (cal_p = 0; cal_p < brcpos; cal_p++)
 			{
-				res = fwrite(&brc[cal_p], 1, 1, brcfile);
+				out_res = fwrite(&brc[cal_p], 1, 1, brcfile);
+				assert(out_res > 0);
 			}
 			// fprintf(brcfile,"%d ",brc[cal_p]); 
 // fprintf(result,"\n");fflush(result); // manually fill # rows: entry <- grep -v ^# result.dat | wc -l
@@ -220,7 +224,7 @@ int main(int argc, char** argv)
 			if ((DataLen - 62 - cposition) > 2) { printf("Not enough data processed: DataLen %d v.s. cposition %d\n", DataLen - 62, cposition); exit(-1); }
 		}
 		numline++;
-	} while ((res > 0)); // until EOF
+	} while ((in_res > 0)); // until EOF
 	fclose(f);
 	fclose(brcfile);
 	fclose(result);
