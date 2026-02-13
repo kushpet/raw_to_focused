@@ -18,43 +18,38 @@ clear;
 % Set the physical constant for speed of light.
 c = physconst('LightSpeed');
 % Set the parameters
-fs = 120*10^6;
-tpd = 3*10^-6; 
-prf = 1000;     % Pulse repetition frequency
-% Set the SAR center frequency.
-fc = 4e9; % Carrier frequency
-%Set the desired range and cross-range resolution to 3 meters.
-rangeResolution = 3;  
-crossRangeResolution = 3;
+R_eta_c = 20000;    % Scene center
+V_r = 150;          % Effective Radar Velocity
+T_r = 2.5e-6;         % Transmitted LFM Pulse Duration
+K_r = 20e12;        % Range FM Rate
+F_0 = 5.2e9;        % SAR LFM Center frequency
+D_f_dop = 80;       % Doppler bandwidth
+F_r = 60e6;         % Range Sampling Rate
+F_a = 100;          % Azimuth Sampling Rage or PRF
+N_az = 256;         % Nuber of Range Lines
+N_rg = 320;         % Samples per range line
+Theta_r_c = 3.5;    % Beam Squint Angle
+Etha_c = -8.1;      % Beam Center Crossing Time
+F_etha_c = 320;     % Dopler Centroid Frequency
 
-% Assume the speed of aircraft is 100 m/s with a flight duration of 4 seconds.
-speed = 100;  
-flightDuration = 4;
-slowTime = 1/prf;
-numpulses = flightDuration/slowTime +1;
-maxRange = 2500;
+% Calculated Parameters
+Bw_lfm = K_r * T_r;     % LFM Pulse Bandwidth
 
-
-
-% The signal bandwidth is a parameter derived from the desired range resolution.
-bw = c/(2*rangeResolution);
 % Configure the LFM signal of the radar.
-waveform = phased.LinearFMWaveform('SampleRate',fs, 'PulseWidth', ...
-    tpd, 'PRF', prf, 'SweepBandwidth', bw);
-
-radarPlatform  = phased.Platform('InitialPosition', [0;-200;500], 'Velocity', [0; speed; 0]);
+waveform = phased.LinearFMWaveform('SampleRate',F_r, 'PulseWidth', ...
+    T_r, 'PRF', F_a, 'SweepBandwidth', Bw_lfm);
 
 % Synthesize SAR data
-rxsig = sentinel_sim(c, fc, fs, prf, flightDuration, maxRange, waveform, radarPlatform);
+rxsig = sentinel_sim(c, F_0, F_r, F_a, N_az, N_rg, R_eta_c, V_r, Theta_r_c, waveform);
 
 % Visualize SAR data
 imagesc(real(rxsig));title('SAR Raw Data')
-xlabel('Cross-Range Samples')
-ylabel('Range Samples')
+xlabel('Range Samples')
+ylabel('Cross-Range Samples')
 
 % Perform range compression
 
-pulseCompression = phased.RangeResponse('RangeMethod', 'Matched filter', 'PropagationSpeed', c, 'SampleRate', fs);
+pulseCompression = phased.RangeResponse('RangeMethod', 'Matched filter', 'PropagationSpeed', c, 'SampleRate', F_r);
 matchingCoeff = getMatchedFilter(waveform);
 [cdata, rnggrid] = pulseCompression(rxsig, matchingCoeff);
 
@@ -63,14 +58,14 @@ imagesc(real(cdata));title('SAR Range Compressed Data')
 xlabel('Cross-Range Samples')
 ylabel('Range Samples')
 
-truncrangesamples = ceil((2*maxRange/c)*fs);
-fastTime = (0:1/fs:(truncrangesamples-1)/fs);
+truncrangesamples = ceil((2*maxRange/c)*F_r);
+fastTime = (0:1/F_r:(truncrangesamples-1)/F_r);
 % Set the reference range for the cross-range processing.
 Rc = 1000;
 
 % Azimuth Compression
-rma_processed = helperRangeMigration(cdata,fastTime,fc,fs,prf,speed,numpulses,c,Rc);
-bpa_processed = helperBackProjection(cdata,rnggrid,fastTime,fc,fs,prf,speed,crossRangeResolution,c);
+rma_processed = helperRangeMigration(cdata,fastTime,F_0,F_r,F_a,speed,numpulses,c,Rc);
+bpa_processed = helperBackProjection(cdata,rnggrid,fastTime,F_0,F_r,F_a,speed,crossRangeResolution,c);
 
 % Visualize RMA
 figure(1);
