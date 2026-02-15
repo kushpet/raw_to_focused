@@ -60,7 +60,8 @@ fprintf('\n');
 fprintf('Генерация сырых данных для одной цели...\n');
 
 % Оси времени
-t_fast = (0:Nrg-1) / Fs;            % Быстрое время [с]
+tau0   = 2*R0/c;                               % задержка до цели
+t_fast = tau0 + ((0:Nrg-1) - Nrg/2) / Fs;      % окно вокруг tau0
 eta_slow = ((0:Naz-1) - Naz/2) / PRF; % Медленное время [с]
 
 % Положение цели - в центре
@@ -95,6 +96,8 @@ for m = 1:Naz
     % Сигнал
     S_raw(:, m) = A0 * w_a * phase_term * (range_window .* chirp).';
 end
+
+fprintf('Max |S_raw| = %.3f\n', max(abs(S_raw(:))));
 
 % Добавить шум
 SNR_dB = 25;

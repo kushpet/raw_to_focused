@@ -135,8 +135,9 @@ fprintf('\n');
 fprintf('Generating raw SAR data...\n');
 
 % Time axes
-t_fast = (0:Nrg-1) / Fs;            % Fast time [s]
-eta_slow = ((0:Naz-1) - Naz/2) / PRF; % Slow time [s], centered
+tau_ref  = 2*R0_center/c;                     % задержка до центра сцены
+t_fast   = tau_ref + ((0:Nrg-1) - Nrg/2)/Fs;  % окно вокруг tau_ref
+eta_slow = ((0:Naz-1) - Naz/2) / PRF;
 
 % Initialize raw data
 S_raw = zeros(Nrg, Naz);
