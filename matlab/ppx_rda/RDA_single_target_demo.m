@@ -32,15 +32,18 @@ Br = abs(Kr * Tr);                  % Полоса [Гц]
 
 % Параметры дискретизации
 Fs = 60e6;                          % Частота дискретизации по range [Гц]
-PRF = 100;                          % ЧПИ [Гц]
+PRF = 120;                          % ЧПИ [Гц]
 
 % Параметры сцены
 R0 = 20000;                         % Дистанция до цели [м]
-theta_squint = deg2rad(3.5);        % Угол squint [рад]
+theta_squint = deg2rad(0);          % Угол squint [рад] Был 3.5 градуса, убрал
 
 % Размеры данных (малые для наглядности)
-Naz = 128;                          % Число импульсов
-Nrg = 256;                          % Отсчётов на импульс
+Naz = 256;                          % Число импульсов
+Nrg = 320;                          % Отсчётов на импульс
+
+Lsca = Naz / PRF * Vr;              % Размер сцены по азимуту [м]
+La = lambda * R0 / Lsca;            % Апертура антенны в азимутуальной плоскости [м]
 
 % Доплеровские параметры
 f_dc = -2*Vr/lambda * sin(theta_squint); % Допплер центроид [Гц]
@@ -61,11 +64,11 @@ fprintf('Генерация сырых данных для одной цели..
 
 % Оси времени
 tau0   = 2*R0/c;                               % задержка до цели
-t_fast = tau0 + ((0:Nrg-1) - Nrg/2) / Fs;      % окно вокруг tau0
+t_fast = tau0 + ((0:Nrg-1) - Nrg/2) / Fs;      % окно вокруг tau0 (строб приёма)
 eta_slow = ((0:Naz-1) - Naz/2) / PRF; % Медленное время [с]
 
 % Положение цели - в центре
-eta0 = 0;                           % Цель в центре апертуры
+eta0 = 0;                           % Цель в центре окна по медленному времени
 A0 = 1.0;                           % Амплитуда
 
 % Инициализация
@@ -73,24 +76,35 @@ S_raw = zeros(Nrg, Naz);
 
 % Генерация сигнала
 for m = 1:Naz
-    eta = eta_slow(m);
+    eta = eta_slow(m);  % Время
     
     % История дальности (гипербола)
     R_eta = sqrt(R0^2 + Vr^2 * (eta - eta0)^2);
     
-    % Задержка
+    % Задержка сиграла до цели и обратно
     tau = 2 * R_eta / c;
     
-    % Азимутальное окно (Гауссово)
-    T_illum = 4.0 / Vr;  % Время освещения [с]
-    w_a = exp(-4*log(2)*(eta - eta0)^2 / T_illum^2);
+    % Угол на цель
+    theta_target = atan2(Vr * (eta-eta0), R0);
+    % Доплеровское смещение
+    doppler = 2 * Vr / lambda * sin(theta_target);
+    % Угол относительно максимума антенны
+    theta_wa = theta_target - theta_squint;
+    % Учёт диаграммы направленности антенны
+    w_a = sinc(La * sin(theta_wa) / lambda);
     
     % ЛЧМ сигнал
+    % t_fast - окно, фиксировано для R0
+    % tau - задержка до цели и обратно, зависит от текущей дальности
+    % t_centered - ноль соответствует середине LFM сигнала
     t_centered = t_fast - tau;
+    % окно для вырезки LFM
     range_window = double(abs(t_centered) <= Tr/2);
     chirp = exp(1j * pi * Kr * t_centered.^2);
     
-    % Фазовый член
+    % Фазовый член - а нужен ли он? Если мы считаем chirp по точному
+    % времени
+    % Нужен, если убрать - не будет изменений фазы на картинке
     phase_term = exp(-1j * 4 * pi * R_eta / lambda);
     
     % Сигнал
@@ -148,19 +162,20 @@ pause(1);
 
 fprintf('ЭТАП 1: Range Compression...\n');
 
-% Частотная ось по дальности
-f_range = ((0:Nrg-1) - Nrg/2) * (Fs/Nrg);
+% Эталон для корреляции
+etalon_chirp_time = ((0:Tr*Fs) - Tr*Fs/2) / Fs;
+etalon_chirp = exp(1j * pi * Kr * etalon_chirp_time.^2);
 
-% Согласованный фильтр (сопряжённый chirp)
-H_rc = exp(-1j * pi * f_range.^2 / Kr);
-H_rc = H_rc .* (abs(f_range) <= Br/2);
+range_fft_length = 2 ^ nextpow2(length(etalon_chirp) + Nrg); 
+% Спектр эталона
+etalon_spectr = fft(etalon_chirp, range_fft_length);
 
 % Применить к каждому импульсу
-S_rc = zeros(Nrg, Naz);
+S_rc = zeros(range_fft_length, Naz);
 for m = 1:Naz
-    S_fft = fftshift(fft(S_raw(:, m)));
-    S_compressed = S_fft .* H_rc.';
-    S_rc(:, m) = ifft(ifftshift(S_compressed));
+    S_fft = fft(S_raw(:, m), range_fft_length);
+    S_compressed = S_fft .* conj(etalon_spectr)';
+    S_rc(:, m) = ifft(S_compressed);
 end
 
 fprintf('  Разрешение по дальности: %.2f м\n\n', c/(2*Br));
@@ -175,7 +190,7 @@ title('После Range Compression');
 colorbar; axis xy; colormap(gca, jet);
 
 subplot(1,3,2);
-plot(t_fast*1e6, abs(S_rc(:, Naz/2)), 'r-', 'LineWidth', 1.5);
+plot(abs(S_rc(:, Naz/2)), 'r-', 'LineWidth', 1.5);
 xlabel('Быстрое время [мкс]'); ylabel('Амплитуда');
 title('Range профиль (центральный импульс)');
 grid on;
