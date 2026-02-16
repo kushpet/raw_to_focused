@@ -81,31 +81,29 @@ for m = 1:Naz
     % История дальности (гипербола)
     R_eta = sqrt(R0^2 + Vr^2 * (eta - eta0)^2);
     
-    % Задержка сиграла до цели и обратно
+    % Задержка сигнала до цели и обратно
     tau = 2 * R_eta / c;
     
     % Угол на цель
     theta_target = atan2(Vr * (eta-eta0), R0);
-    % Доплеровское смещение
+    % Доплеровское смещение (справочно, не используется в расчётах)
     doppler = 2 * Vr / lambda * sin(theta_target);
     % Угол относительно максимума антенны
     theta_wa = theta_target - theta_squint;
-    % Учёт диаграммы направленности антенны
-    w_a = sinc(La * sin(theta_wa) / lambda);
-    
     % ЛЧМ сигнал
+    % по формуле 4.39 из Cumming, 2005.
     % t_fast - окно, фиксировано для R0
     % tau - задержка до цели и обратно, зависит от текущей дальности
     % t_centered - ноль соответствует середине LFM сигнала
     t_centered = t_fast - tau;
-    % окно для вырезки LFM
+    % окно для вырезки LFM - аналог w_r
     range_window = double(abs(t_centered) <= Tr/2);
-    chirp = exp(1j * pi * Kr * t_centered.^2);
-    
-    % Фазовый член - а нужен ли он? Если мы считаем chirp по точному
-    % времени
-    % Нужен, если убрать - не будет изменений фазы на картинке
+    % Учёт диаграммы направленности антенны
+    w_a = sinc(La * sin(theta_wa) / lambda);   
+    % Фазовый член - изменение фазы несущей
     phase_term = exp(-1j * 4 * pi * R_eta / lambda);
+    % ЛЧМ по полному окну
+    chirp = exp(1j * pi * Kr * t_centered.^2);
     
     % Сигнал
     S_raw(:, m) = A0 * w_a * phase_term * (range_window .* chirp).';
@@ -126,23 +124,36 @@ fprintf('Сырые данные: %d × %d\n\n', Nrg, Naz);
 % =========================================================================
 
 figure('Name', 'ЭТАП 0: Сырые данные', 'Position', [50 50 1400 500]);
+% Реальная часть
+subplot(2,3,1);
+imagesc(eta_slow*1e3, t_fast*1e6, real(S_raw));
+xlabel('Медленное время [мс]'); ylabel('Быстрое время [мкс]');
+title('Реальная часть сырых данных');
+colorbar; axis xy; colormap(gca, jet);
+
+% Мнимая часть
+subplot(2,3,2);
+imagesc(eta_slow*1e3, t_fast*1e6, imag(S_raw));
+xlabel('Медленное время [мс]'); ylabel('Быстрое время [мкс]');
+title('Мнимая часть сырых данных');
+colorbar; axis xy; colormap(gca, jet);
 
 % Амплитуда
-subplot(1,3,1);
+subplot(2,3,4);
 imagesc(eta_slow*1e3, t_fast*1e6, abs(S_raw));
 xlabel('Медленное время [мс]'); ylabel('Быстрое время [мкс]');
 title('Амплитуда сырых данных');
 colorbar; axis xy; colormap(gca, jet);
 
 % Фаза
-subplot(1,3,2);
+subplot(2,3,5);
 imagesc(eta_slow*1e3, t_fast*1e6, angle(S_raw));
 xlabel('Медленное время [мс]'); ylabel('Быстрое время [мкс]');
 title('Фаза сырых данных');
 colorbar; axis xy; colormap(gca, hsv);
 
 % Азимутальный профиль (центральный range bin)
-subplot(1,3,3);
+subplot(2,3,6);
 center_range_bin = round(Nrg/2);
 plot(eta_slow*1e3, abs(S_raw(center_range_bin, :)), 'b-', 'LineWidth', 1.5);
 xlabel('Медленное время [мс]'); ylabel('Амплитуда');
@@ -162,23 +173,33 @@ pause(1);
 
 fprintf('ЭТАП 1: Range Compression...\n');
 
-% Эталон для корреляции
+fprintf('ЭТАП 1: Range Compression...\n');
+
+% Опорный чирп, центрированный
 etalon_chirp_time = ((0:Tr*Fs) - Tr*Fs/2) / Fs;
 etalon_chirp = exp(1j * pi * Kr * etalon_chirp_time.^2);
 
-range_fft_length = 2 ^ nextpow2(length(etalon_chirp) + Nrg); 
-% Спектр эталона
-etalon_spectr = fft(etalon_chirp, range_fft_length);
+% Нулепаддинг до Nrg
+Lref = length(etalon_chirp);
+etalon_padded = zeros(Nrg, 1);
+etalon_padded(1:min(Lref, Nrg)) = etalon_chirp(1:min(Lref, Nrg));
 
-% Применить к каждому импульсу
-S_rc = zeros(range_fft_length, Naz);
+% Circular shift, чтобы пик в центр
+center_bin = round(Nrg/2) + 1;
+etalon_shifted = circshift(etalon_padded, center_bin - 1);
+
+% Спектр опорного (столбец!)
+etalon_spectr = fft(etalon_shifted, Nrg);
+
+% Циклическая свёртка
+S_rc = zeros(Nrg, Naz);
 for m = 1:Naz
-    S_fft = fft(S_raw(:, m), range_fft_length);
-    S_compressed = S_fft .* conj(etalon_spectr)';
+    S_fft = fft(S_raw(:, m), Nrg);
+    S_compressed = S_fft .* conj(etalon_spectr);  % БЕЗ .'
     S_rc(:, m) = ifft(S_compressed);
 end
 
-fprintf('  Разрешение по дальности: %.2f м\n\n', c/(2*Br));
+fprintf(' Разрешение по дальности: %.2f м\n\n', c/(2*Br));
 
 %% ВИЗУАЛИЗАЦИЯ: Range Compressed
 figure('Name', 'ЭТАП 1: Range Compression', 'Position', [60 60 1400 500]);
