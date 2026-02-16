@@ -173,29 +173,23 @@ pause(1);
 
 fprintf('ЭТАП 1: Range Compression...\n');
 
-fprintf('ЭТАП 1: Range Compression...\n');
-
-% Опорный чирп, центрированный
+% Опорный чирп, центрированный (БЕЗ shift!)
 etalon_chirp_time = ((0:Tr*Fs) - Tr*Fs/2) / Fs;
 etalon_chirp = exp(1j * pi * Kr * etalon_chirp_time.^2);
 
-% Нулепаддинг до Nrg
+% Нулепаддинг до Nrg (в начало, пик будет в начале S_rc)
 Lref = length(etalon_chirp);
 etalon_padded = zeros(Nrg, 1);
-etalon_padded(1:min(Lref, Nrg)) = etalon_chirp(1:min(Lref, Nrg));
+etalon_padded(1:min(Lref, Nrg)) = etalon_chirp;  % НЕТ circshift!
 
-% Circular shift, чтобы пик в центр
-center_bin = round(Nrg/2) + 1;
-etalon_shifted = circshift(etalon_padded, center_bin - 1);
+% Спектр опорного
+etalon_spectr = fft(etalon_padded, Nrg);
 
-% Спектр опорного (столбец!)
-etalon_spectr = fft(etalon_shifted, Nrg);
-
-% Циклическая свёртка
+% Циклическая свёртка (размер Nrg)
 S_rc = zeros(Nrg, Naz);
 for m = 1:Naz
     S_fft = fft(S_raw(:, m), Nrg);
-    S_compressed = S_fft .* conj(etalon_spectr);  % БЕЗ .'
+    S_compressed = S_fft .* conj(etalon_spectr);
     S_rc(:, m) = ifft(S_compressed);
 end
 
@@ -205,21 +199,25 @@ fprintf(' Разрешение по дальности: %.2f м\n\n', c/(2*Br));
 figure('Name', 'ЭТАП 1: Range Compression', 'Position', [60 60 1400 500]);
 
 subplot(1,3,1);
-imagesc(eta_slow*1e3, t_fast*1e6, abs(S_rc));
+Lref = length(etalon_chirp);  % ~150
+peak_rc_idx = Lref;           % пик корреляции здесь (1-based)
+S_rc_vis = circshift(S_rc, Nrg/2 - peak_rc_idx + 1, 1);  % сдвинуть пик в центр
+imagesc(eta_slow*1e3, t_fast*1e6, abs(S_rc_vis));
 xlabel('Медленное время [мс]'); ylabel('Быстрое время [мкс]');
-title('После Range Compression');
+title('После Range Compression (пик в центр)');
 colorbar; axis xy; colormap(gca, jet);
 
 subplot(1,3,2);
-plot(abs(S_rc(:, Naz/2)), 'r-', 'LineWidth', 1.5);
+plot(t_fast*1e6, abs(circshift(S_rc(:, Naz/2), Nrg/2 - peak_rc_idx + 1)), 'r-', 'LineWidth', 1.5);
 xlabel('Быстрое время [мкс]'); ylabel('Амплитуда');
 title('Range профиль (центральный импульс)');
 grid on;
 
 subplot(1,3,3);
-plot(eta_slow*1e3, abs(S_rc(center_range_bin, :)), 'b-', 'LineWidth', 1.5);
+peak_range_bin = Lref;  % или round(Lref)
+plot(eta_slow*1e3, abs(S_rc(peak_range_bin, :)), 'b-', 'LineWidth', 1.5);
 xlabel('Медленное время [мс]'); ylabel('Амплитуда');
-title('Азимутальный профиль');
+title(sprintf('Азимутальный профиль (range bin %d)', peak_range_bin));
 grid on;
 
 annotation('textbox', [0.02 0.95 0.4 0.04], 'String', ...
