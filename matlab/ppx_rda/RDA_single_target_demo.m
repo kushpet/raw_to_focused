@@ -117,6 +117,15 @@ signal_power = sum(abs(S_raw(:)).^2) / numel(S_raw);
 noise_power = signal_power / (10^(SNR_dB/10));
 S_raw = S_raw + sqrt(noise_power/2) * (randn(size(S_raw)) + 1j*randn(size(S_raw)));
 
+% Обнулить края для последующей циклической свёртки
+Lref = Tr * Fs + 1;    % Длинна опорного сигнала (нечетная)
+Blank_raw = zeros(floor(Lref/2), Naz);
+S_raw(1:floor(Lref/2), :) = Blank_raw; % Начало по дальности
+S_raw(Nrg - floor(Lref/2) + 1:Nrg, :) = Blank_raw; % Конец по дальности
+% Здесь ожидаем максимум свёрнутого сигнала
+center_range_bin = floor(Nrg/2) + 1;
+center_azimuth_bin = floor(Naz/2) + 1;
+
 fprintf('Сырые данные: %d × %d\n\n', Nrg, Naz);
 
 %% ========================================================================
@@ -154,7 +163,6 @@ colorbar; axis xy; colormap(gca, hsv);
 
 % Азимутальный профиль (центральный range bin)
 subplot(2,3,6);
-center_range_bin = round(Nrg/2);
 plot(eta_slow*1e3, abs(S_raw(center_range_bin, :)), 'b-', 'LineWidth', 1.5);
 xlabel('Медленное время [мс]'); ylabel('Амплитуда');
 title(sprintf('Азимутальный профиль (range bin %d)', center_range_bin));
@@ -162,7 +170,7 @@ grid on;
 
 % Пояснение
 annotation('textbox', [0.02 0.95 0.3 0.04], 'String', ...
-    'Видна гиперболическая траектория цели', ...
+    'Видна диаграмма направленности по азимуту', ...
     'EdgeColor', 'none', 'FontSize', 10, 'FontWeight', 'bold');
 
 pause(1);
@@ -173,15 +181,18 @@ pause(1);
 
 fprintf('ЭТАП 1: Range Compression...\n');
 
-% Опорный чирп, центрированный (БЕЗ shift!)
+% Опорный чирп от отрицательного до положетельного времени
 etalon_chirp_time = ((0:Tr*Fs) - Tr*Fs/2) / Fs;
 etalon_chirp = exp(1j * pi * Kr * etalon_chirp_time.^2);
 
-% Нулепаддинг до Nrg (в начало, пик будет в начале S_rc)
-Lref = length(etalon_chirp);
+% Нулепаддинг до Nrg
 etalon_padded = zeros(Nrg, 1);
-etalon_padded(1:min(Lref, Nrg)) = etalon_chirp;  % НЕТ circshift!
-
+etalon_padded(1:min(Lref, Nrg)) = etalon_chirp;
+% Сдвигаем циклически назад, так, чтобы центр LFM попал 
+% в нулевую (первую) позицию. Тогда при выполнении
+% взаимной корреляции получим пик в точке середины LFM 
+% принятого сигнала
+etalon_padded = circshift(etalon_padded, - floor(Lref / 2));
 % Спектр опорного
 etalon_spectr = fft(etalon_padded, Nrg);
 
@@ -199,25 +210,21 @@ fprintf(' Разрешение по дальности: %.2f м\n\n', c/(2*Br));
 figure('Name', 'ЭТАП 1: Range Compression', 'Position', [60 60 1400 500]);
 
 subplot(1,3,1);
-Lref = length(etalon_chirp);  % ~150
-peak_rc_idx = Lref;           % пик корреляции здесь (1-based)
-S_rc_vis = circshift(S_rc, Nrg/2 - peak_rc_idx + 1, 1);  % сдвинуть пик в центр
-imagesc(eta_slow*1e3, t_fast*1e6, abs(S_rc_vis));
+imagesc(eta_slow*1e3, t_fast*1e6, abs(S_rc));
 xlabel('Медленное время [мс]'); ylabel('Быстрое время [мкс]');
 title('После Range Compression (пик в центр)');
 colorbar; axis xy; colormap(gca, jet);
 
 subplot(1,3,2);
-plot(t_fast*1e6, abs(circshift(S_rc(:, Naz/2), Nrg/2 - peak_rc_idx + 1)), 'r-', 'LineWidth', 1.5);
+plot(t_fast*1e6, abs(S_rc(:, center_azimuth_bin)), 'r-', 'LineWidth', 1.5);
 xlabel('Быстрое время [мкс]'); ylabel('Амплитуда');
 title('Range профиль (центральный импульс)');
 grid on;
 
 subplot(1,3,3);
-peak_range_bin = Lref;  % или round(Lref)
-plot(eta_slow*1e3, abs(S_rc(peak_range_bin, :)), 'b-', 'LineWidth', 1.5);
+plot(eta_slow*1e3, abs(S_rc(center_range_bin, :)), 'b-', 'LineWidth', 1.5);
 xlabel('Медленное время [мс]'); ylabel('Амплитуда');
-title(sprintf('Азимутальный профиль (range bin %d)', peak_range_bin));
+title(sprintf('Азимутальный профиль (range bin %d)', center_range_bin));
 grid on;
 
 annotation('textbox', [0.02 0.95 0.4 0.04], 'String', ...
@@ -366,7 +373,8 @@ title('Сфокусированное изображение');
 colorbar; axis xy; colormap(gca, jet);
 hold on;
 % Отметить истинное положение цели
-plot(0, (2*R0/c)*1e6, 'r+', 'MarkerSize', 20, 'LineWidth', 3);
+plot(0, (2*R0/c)*1e6, 's-', 'MarkerSize', 20, 'LineWidth', 2, ...
+    'MarkerEdgeColor', 'r', 'MarkerFaceColor', 'none');
 hold off;
 
 % Range профиль
@@ -407,7 +415,8 @@ xlabel('Азимут [мс]'); ylabel('Дальность [мкс]');
 title('ПОСЛЕ: Сфокусированное изображение');
 colorbar; axis xy; colormap(gca, jet);
 hold on;
-plot(0, (2*R0/c)*1e6, 'r+', 'MarkerSize', 20, 'LineWidth', 3);
+plot(0, (2*R0/c)*1e6, 's-', 'MarkerSize', 20, 'LineWidth', 2, ...
+    'MarkerEdgeColor', 'r', 'MarkerFaceColor', 'none');
 hold off;
 
 %% ========================================================================
@@ -421,8 +430,8 @@ fprintf('=== АНАЛИЗ КАЧЕСТВА ===\n');
 [peak_range, peak_az] = ind2sub(size(S_focused), max_idx);
 
 fprintf('Пик сигнала:\n');
-fprintf('  Range bin: %d (ожидалось ~%d)\n', peak_range, round(Nrg/2));
-fprintf('  Azimuth sample: %d (ожидалось ~%d)\n', peak_az, round(Naz/2));
+fprintf('  Range bin: %d (ожидалось ~%d)\n', peak_range, center_range_bin);
+fprintf('  Azimuth sample: %d (ожидалось ~%d)\n', peak_az, center_azimuth_bin);
 fprintf('  Амплитуда: %.2f\n', max_val);
 
 % PSLR (Peak to Side Lobe Ratio) по range
