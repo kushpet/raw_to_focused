@@ -32,14 +32,14 @@ Br = abs(Kr * Tr);                  % Полоса [Гц]
 
 % Параметры дискретизации
 Fs = 60e6;                          % Частота дискретизации по range [Гц]
-PRF = 120;                          % ЧПИ [Гц]
+PRF = 1200;                         % ЧПИ [Гц]
 
 % Параметры сцены
-R0 = 20000;                         % Дистанция до цели [м]
+R0 = 2e3;                           % Дистанция до цели [м]
 theta_squint = deg2rad(0);          % Угол squint [рад] Был 3.5 градуса, убрал
 
 % Размеры данных (малые для наглядности)
-Naz = 256;                          % Число импульсов
+Naz = 2560;                         % Число импульсов
 Nrg = 320;                          % Отсчётов на импульс
 
 Lsca = Naz / PRF * Vr;              % Размер сцены по азимуту [м]
@@ -273,9 +273,13 @@ hold on;
 
 % Теоретическая траектория миграции
 for k = 1:length(f_eta)
-    D_f = sqrt(1 - (lambda * f_eta(k) / (2*Vr))^2);
-    delta_R = R0 * (D_f - 1);
-    t_migration = (2*R0/c) + (2*delta_R/c);
+    f_d = f_eta(k); % Просто частота, которая соответствует этому "бину"
+    % Истинная дальность гиперболы для этого f_d
+    sin_theta = lambda * f_d / (2 * Vr);  % sin(θ) = λ f_d / (2 V_r)
+    cos_theta = sqrt(1 - sin_theta^2);    % cos(θ)
+    R_actual = R0 / cos_theta;            % R(θ) = R0 / cos(θ) > R0
+    delta_R = R_actual - R0;              % ПОЛОЖИТЕЛЬНОЕ!
+    t_migration = 2 * R_actual / c;       % > tau0
     plot(f_eta(k), t_migration*1e6, 'r.', 'MarkerSize', 8);
 end
 hold off;
@@ -294,21 +298,23 @@ pause(1);
 fprintf('ЭТАП 3: Range Cell Migration Correction...\n');
 
 S_rcmc = zeros(Nrg, Naz);
-
 for m = 1:Naz
     f_eta_m = f_eta(m);
     
-    % D функция
-    D_f = sqrt(1 - (lambda * f_eta_m / (2*Vr))^2);
+    % 1. УГОЛ (точно)
+    sin_theta = lambda * f_eta_m / (2 * Vr);
+    cos_theta = sqrt(max(0, 1 - sin_theta^2));  % защита от |sin| > 1
     
-    % Миграция
-    delta_R = R0 * (D_f - 1);
+    % 2. ДАЛЬНОСТЬ гиперболы (Cumming eq. 4.2-12)
+    R_slant = R0 / cos_theta;  % > R0!
+    
+    % 3. Миграция (ПОЛОЖИТЕЛЬНАЯ)
+    delta_R = R_slant - R0;
     delta_t = 2 * delta_R / c;
     
-    % Сдвинутая временная ось
-    t_shifted = t_fast + delta_t;
+    % 4. ИНТЕРПОЛЯЦИЯ НАЗАД к R0
+    t_shifted = t_fast + delta_t;  % Плюс!
     
-    % Интерполяция
     S_rcmc(:, m) = interp1(t_fast, S_rd(:, m), t_shifted, 'linear', 0);
 end
 
