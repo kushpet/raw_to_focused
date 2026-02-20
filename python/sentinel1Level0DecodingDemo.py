@@ -89,10 +89,35 @@ for chunk in l0file.iter_chunks_matching(signal_type=sentinel1decoder.enums.Sign
 
 # In[7]:
 
+target_swath = 11   # подставь свой
 
-selected_chunk = 11
-selection = l0file.get_acquisition_chunk_metadata(selected_chunk)
-selection
+chunks_in_swath = []
+for chunk in l0file.iter_chunks_matching(signal_type=sentinel1decoder.enums.SignalType.ECHO):
+    consts = l0file.get_acquisition_chunk_constants(chunk)
+    if consts.get("swath_num") == target_swath:
+        chunks_in_swath.append(chunk)
+
+print("Chunks in swath", target_swath, ":", chunks_in_swath)
+
+radar_data_list = []
+meta_list = []
+
+for ch in chunks_in_swath:
+    sel_ch = l0file.get_acquisition_chunk_metadata(ch)
+    iq_ch = l0file.get_acquisition_chunk_data(ch)   # (az, range)
+
+    meta_list.append(sel_ch)
+    radar_data_list.append(iq_ch)
+
+# склейка по азимуту: получаем один большой swath
+radar_data = np.vstack(radar_data_list)
+selection = pd.concat(meta_list, ignore_index=True)
+
+print("Final swath radar_data shape:", radar_data.shape)
+
+# selected_chunk = 11
+# selection = l0file.get_acquisition_chunk_metadata(selected_chunk)
+# selection
 
 
 # ### 3.2 - Extract Raw I/Q Sensor Data
@@ -103,11 +128,11 @@ selection
 
 
 # Decode the IQ data
-radar_data = l0file.get_acquisition_chunk_data(selected_chunk)
+# radar_data = l0file.get_acquisition_chunk_data(selected_chunk)
 assert radar_data.dtype == np.complex64
 
 # Cache this data so we can retreive it more quickly next time we want it
-l0file.save_acquisition_chunk_data(selected_chunk)
+# l0file.save_acquisition_chunk_data(selected_chunk)
 
 
 # Plotting our array, we can see that although there is clearly some structure to the data, we can't yet make out individual features. Our image needs to be focused along both the range and azimuth axes.
@@ -118,11 +143,12 @@ l0file.save_acquisition_chunk_data(selected_chunk)
 # Plot the raw IQ data extracted from the data file
 plt.figure(figsize=(12, 12))
 plt.title("Sentinel-1 Raw I/Q Sensor Output")
-# We're just going to plot every 20th row/col value for speed here
-plt.imshow(abs(radar_data[::20,::20]), vmin=0, vmax=15, origin='lower')
+# We're just going to plot every 20th row/col value for speed here [::20, ::20]
+plt.imshow(np.flipud(abs(radar_data)), cmap='gray', origin='lower')
 plt.xlabel("Fast Time (down range)")
 plt.ylabel("Slow Time (cross range)")
-plt.show()
+plt.savefig("raw_iq.png", dpi=300, bbox_inches="tight")
+# plt.show(block=False)
 
 
 # ## 4 - Image Processing
@@ -466,10 +492,12 @@ assert radar_data.dtype == np.complex64
 # Plot final image
 plt.figure(figsize=(12, 12))
 plt.title("Sentinel-1 Processed SAR Image")
-plt.imshow(abs(radar_data[::20, ::20]), origin='lower', norm=colors.LogNorm(vmin=300, vmax=10000))
+# [::20, ::20]
+plt.imshow(np.flipud(abs(radar_data)), cmap='gray', origin='lower', norm=colors.LogNorm(vmin=300, vmax=10000))
 plt.xlabel("Down Range (samples)")
 plt.ylabel("Cross Range (samples)")
-plt.show()
+plt.savefig("sar_full.png", dpi=300, bbox_inches="tight")
+# plt.show(block=False)
 
 
 # In[19]:
@@ -478,11 +506,12 @@ plt.show()
 # Plot final image - detail
 plt.figure(figsize=(12, 12))
 plt.title("Sentinel-1 Processed SAR Image - detail")
-plt.imshow(abs(radar_data[9000:11000, 6000:8000]), origin='lower', norm=colors.LogNorm(vmin=300, vmax=10000))
+plt.imshow(np.flipud(abs(radar_data[9000:11000, 6000:8000])), cmap='gray', origin='lower', norm=colors.LogNorm(vmin=300, vmax=10000))
 plt.xlabel("Down Range (samples)")
 plt.ylabel("Cross Range (samples)")
 plt.show()
 
+# input("Press Enter to continue...")
 
 # There are still a few noteworthy issues with our image. Various terrain features are clearly visible, however the image is still not perfectly focused. We have assumed a Doppler centroid of 0Hz, and have not applied a number of additional processing steps that ESA use to produce Level 1 products e.g. Secondary Range Compression (SRC). These are left as an exercise for the reader.
 
