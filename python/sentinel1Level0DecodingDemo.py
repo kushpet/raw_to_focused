@@ -23,6 +23,24 @@ import gc
 from matplotlib import colors
 from scipy.interpolate import interp1d
 from scipy.fft import fft, ifft, fftshift, ifftshift
+from pathlib import Path
+import argparse
+
+DATASETS = {
+    "rosemond": (Path("./data/rosemond/"),
+                 "s1a-iw-raw-s-vv-20260209t135205-20260209t135238-063143-07ed08.dat"),
+    "yamal":    (Path("./data/yamal/"),
+                 "s1c-iw-raw-s-vv-20251229t020946-20251229t021018-005660-00b4d6.dat"),
+    # добавляй дальше
+}
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--ds", choices=DATASETS.keys(), default="rosemond")
+args = parser.parse_args()
+
+filepath, filename = DATASETS[args.ds]
+inputfile = str(filepath / filename)
+print("Using:", inputfile)
 
 
 # In[2]:
@@ -33,11 +51,10 @@ pd.set_option('display.max_columns', None)
 
 # In[3]:
 
-
-filepath = "./data/yamal/"
-filename = "s1c-iw-raw-s-vv-20251229t020946-20251229t021018-005660-00b4d6.dat"
-
-inputfile = filepath+filename
+# Moved Up
+# filepath = "./data/rosemond/"
+# filename = "s1a-iw-raw-s-vv-20260209t135205-20260209t135238-063143-07ed08.dat"
+# inputfile = filepath+filename
 
 l0file = sentinel1decoder.Level0File(inputfile)
 
@@ -108,6 +125,11 @@ for ch in chunks_in_swath:
 
     meta_list.append(sel_ch)
     radar_data_list.append(iq_ch)
+
+min_cols = min(a.shape[1] for a in radar_data_list)
+print("Cropping all chunks to", min_cols, "range samples")
+
+radar_data_list = [a[:, :min_cols] for a in radar_data_list]
 
 # склейка по азимуту: получаем один большой swath
 radar_data = np.vstack(radar_data_list)
