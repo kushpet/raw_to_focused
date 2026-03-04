@@ -2,3 +2,7 @@ data
 build
 .vscode
 *.asv
+*.ipynb
+.ipynb_checkpoints
+*.png
+
