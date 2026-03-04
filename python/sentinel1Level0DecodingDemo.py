@@ -27,8 +27,12 @@ from pathlib import Path
 import argparse
 
 DATASETS = {
-    "rosemond": (Path("./data/rosemond/"),
+    "la_ocean":    (Path("./data/la_ocean/"),
+                 "s1a-iw-raw-s-vv-20260226t140052-20260226t140125-063391-07f66a.dat"),
+    "rosemond-09": (Path("./data/rosemond/"),
                  "s1a-iw-raw-s-vv-20260209t135205-20260209t135238-063143-07ed08.dat"),
+    "rosemond-27": (Path("./data/rosemond/"),
+                 "s1c-iw-raw-s-vv-20260227t014923-20260227t014955-006535-00d2c6.dat"),
     "yamal":    (Path("./data/yamal/"),
                  "s1c-iw-raw-s-vv-20251229t020946-20251229t021018-005660-00b4d6.dat"),
     # добавляй дальше
@@ -105,41 +109,57 @@ for chunk in l0file.iter_chunks_matching(signal_type=sentinel1decoder.enums.Sign
 # For this example, we'll be focusing on the coastline around the port of Santos:
 
 # In[7]:
+# 1) Собираем все ECHO-chunks и их swath_num
+echo_chunks = []
+swath_to_chunks = {}
 
-target_swath = 11   # подставь свой
-
-chunks_in_swath = []
 for chunk in l0file.iter_chunks_matching(signal_type=sentinel1decoder.enums.SignalType.ECHO):
     consts = l0file.get_acquisition_chunk_constants(chunk)
-    if consts.get("swath_num") == target_swath:
-        chunks_in_swath.append(chunk)
+    sw = consts.get("swath_num")
+    echo_chunks.append(chunk)
+    swath_to_chunks.setdefault(sw, []).append(chunk)
 
-print("Chunks in swath", target_swath, ":", chunks_in_swath)
+available_swaths = sorted([s for s in swath_to_chunks.keys() if s is not None])
+print("Available swaths (swath_num) in file:", available_swaths)
 
-radar_data_list = []
-meta_list = []
+# 2) Выбор swath с защитой от неверного ввода
+while True:
+    s = input("Select swath_num from the list above: ").strip()
+    try:
+        target_swath = int(s)
+    except ValueError:
+        print("Error: please enter an integer swath_num.")
+        continue
 
-for ch in chunks_in_swath:
-    sel_ch = l0file.get_acquisition_chunk_metadata(ch)
-    iq_ch = l0file.get_acquisition_chunk_data(ch)   # (az, range)
+    if target_swath not in swath_to_chunks:
+        print(f"Error: swath_num {target_swath} not found. Available: {available_swaths}")
+        continue
+    break
 
-    meta_list.append(sel_ch)
-    radar_data_list.append(iq_ch)
+chunks_in_swath = swath_to_chunks[target_swath]
+print(f"Chunks in swath {target_swath}:", chunks_in_swath)
 
-min_cols = min(a.shape[1] for a in radar_data_list)
-print("Cropping all chunks to", min_cols, "range samples")
+# 3) Выбор chunk (теперь НЕ склеиваем все chunks в radar_data)
+while True:
+    s = input("Select chunk id from the list above: ").strip()
+    try:
+        selected_chunk = int(s)
+    except ValueError:
+        print("Error: please enter an integer chunk id.")
+        continue
 
-radar_data_list = [a[:, :min_cols] for a in radar_data_list]
+    if selected_chunk not in chunks_in_swath:
+        print(f"Error: chunk {selected_chunk} is not in swath {target_swath}. Available: {chunks_in_swath}")
+        continue
+    break
 
-# склейка по азимуту: получаем один большой swath
-radar_data = np.vstack(radar_data_list)
-selection = pd.concat(meta_list, ignore_index=True)
+# 4) Дальше работаем только с одним chunk
+selection = l0file.get_acquisition_chunk_metadata(selected_chunk)
+radar_data = l0file.get_acquisition_chunk_data(selected_chunk)  # (az, range)
 
-print("Final swath radar_data shape:", radar_data.shape)
-
-# selected_chunk = 11
-# selection = l0file.get_acquisition_chunk_metadata(selected_chunk)
-# selection
+print("Selected swath_num:", target_swath)
+print("Selected chunk:", selected_chunk)
+print("Selected chunk radar_data shape:", radar_data.shape)
 
 
 # ### 3.2 - Extract Raw I/Q Sensor Data
@@ -526,11 +546,11 @@ plt.savefig("sar_full.png", dpi=300, bbox_inches="tight")
 
 
 # Plot final image - detail
-plt.figure(figsize=(12, 12))
-plt.title("Sentinel-1 Processed SAR Image - detail")
-plt.imshow(np.flipud(abs(radar_data[9000:11000, 6000:8000])), cmap='gray', origin='lower', norm=colors.LogNorm(vmin=300, vmax=10000))
-plt.xlabel("Down Range (samples)")
-plt.ylabel("Cross Range (samples)")
+# plt.figure(figsize=(12, 12))
+# plt.title("Sentinel-1 Processed SAR Image - detail")
+# plt.imshow(np.flipud(abs(radar_data[9000:11000, 6000:8000])), cmap='gray', origin='lower', norm=colors.LogNorm(vmin=300, vmax=10000))
+# plt.xlabel("Down Range (samples)")
+# plt.ylabel("Cross Range (samples)")
 plt.show()
 
 # input("Press Enter to continue...")
