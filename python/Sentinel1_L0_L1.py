@@ -25,6 +25,7 @@
 #
 
 # %%
+# %matplotlib widget
 import sentinel1decoder
 import pandas as pd
 import numpy as np
@@ -35,8 +36,11 @@ from matplotlib import colors
 from scipy.interpolate import interp1d
 from scipy.fft import fft, ifft, fftshift, ifftshift
 from pathlib import Path
-
+from matplotlib import cm
+from scipy.io import savemat
 DATASETS = {
+    "dlr_munchen":    (Path("./data/dlr_munchen/"),
+                 "s1c-iw-raw-s-vv-20260105t052540-20260105t052613-005764-00b86c.dat"),
     "la_ocean":    (Path("./data/la_ocean/"),
                  "s1a-iw-raw-s-vv-20260226t140052-20260226t140125-063391-07f66a.dat"),
     "rosemond-09": (Path("./data/rosemond/"),
@@ -118,7 +122,7 @@ print("Available swaths (swath_num) in file:", available_swaths)
 
 
 # %%
-target_swath = 10
+target_swath = 11
 
 chunks_in_swath = swath_to_chunks[target_swath]
 print(f"Chunks in swath {target_swath}:", chunks_in_swath)
@@ -126,7 +130,7 @@ print(f"Chunks in swath {target_swath}:", chunks_in_swath)
 
 
 # %%
-selected_chunk = 7
+selected_chunk = 55
 
 # 4) Дальше работаем только с одним chunk
 selection = l0file.get_acquisition_chunk_metadata(selected_chunk)
@@ -149,7 +153,7 @@ print("Selected chunk radar_data shape:", radar_data.shape)
 plt.figure(figsize=(12, 12))
 plt.title("Sentinel-1 Raw I/Q Sensor Output")
 # We're just going to plot every 20th row/col value for speed here [::20, ::20]
-plt.imshow(np.flipud(abs(radar_data)), cmap='gray', origin='lower')
+plt.imshow(np.flipud(abs(radar_data[::10, ::10])), cmap='gray', origin='lower')
 plt.xlabel("Fast Time (down range)")
 plt.ylabel("Slow Time (cross range)")
 plt.savefig("raw_iq.png", dpi=300, bbox_inches="tight")
@@ -484,21 +488,56 @@ radar_data = ifft(radar_data, axis=0, overwrite_x=True)
 assert radar_data.dtype == np.complex64
 
 # %%
+#save to matlab
+savemat('radar_data.mat', {'radar_data': radar_data})
+
+# %%
 # Plot final image
 plt.figure(figsize=(12, 12))
 plt.title("Sentinel-1 Processed SAR Image")
-# [::20, ::20]
-plt.imshow(np.flipud(abs(radar_data)), cmap='gray', origin='lower', norm=colors.LogNorm(vmin=300, vmax=10000))
+plt.imshow(np.flipud(abs(radar_data[::10, ::10])), cmap='gray', origin='lower', norm=colors.LogNorm(vmin=100, vmax=1000))
 plt.xlabel("Down Range (samples)")
 plt.ylabel("Cross Range (samples)")
 plt.savefig("sar_full.png", dpi=300, bbox_inches="tight")
-plt.show(block=False)
+plt.show()
+
+# %% [markdown]
+# Plot 3D shape
 
 # %%
+# Our data (2D‑array)
+max_abs = np.max(np.abs(radar_data))
+print("Max absolute value in radar_data =", max_abs)
+z = np.flipud(np.abs(radar_data[::10, ::10]))
+
+ny, nx = z.shape
+x = np.arange(nx)
+y = np.arange(ny)
+X, Y = np.meshgrid(x, y)
+
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+
+surf = ax.plot_surface(
+    X, Y, z,
+    cmap='turbo',
+    norm=colors.LogNorm(vmin=100, vmax=1000),
+    linewidth=0,
+    antialiased=False
+)
+
+ax.set_xlabel('X')
+ax.set_ylabel('Y')
+ax.set_zlabel('Amplitude')
+
+plt.show()
+
+# %%
+print("Selected chunk radar_data shape:", radar_data.shape)
 # Plot final image - detail
 plt.figure(figsize=(12, 12))
 plt.title("Sentinel-1 Processed SAR Image - detail")
-plt.imshow(np.flipud(abs(radar_data[9000:11000, 6000:8000])), cmap='gray', origin='lower', norm=colors.LogNorm(vmin=300, vmax=10000))
+plt.imshow(np.flipud(abs(radar_data[550:750, 13000:13500])), cmap='gray', origin='lower', norm=colors.LogNorm(vmin=1000, vmax=3000))
 plt.xlabel("Down Range (samples)")
 plt.ylabel("Cross Range (samples)")
 plt.show()
